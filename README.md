@@ -2,6 +2,8 @@
 
 Next.js frontend for the audio deduplication system. Uploads files, polls job status, and displays live metrics.
 
+![Homepage](image.png)
+
 
 ## Stack
 
