@@ -1,36 +1,148 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Audio Upload Deduplication - Frontend
 
-## Getting Started
+Next.js frontend for the audio deduplication system. Uploads files, polls job status, and displays live metrics.
 
-First, run the development server:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Stack
+
+- **Framework:** Next.js (App Router)
+- **Styling:** Tailwind CSS
+- **HTTP Client:** Axios (centralized instance)
+- **State:** Local React state + `useEffect` polling
+- No external UI libraries
+
+
+### `UploadCard` — State Machine
+
+The core component. Manages the full upload lifecycle:
+
+```
+idle
+  ↓  user selects file + submits
+uploading  (progress bar active)
+  ↓  API returns jobId
+processing  (polling /jobs/:id)
+  ↓  terminal state received
+success | duplicate | error
+  ↓  auto-reset after 4 seconds
+idle
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+State variables: `status`, `message`, `progress`, `fileName`, `jobId`
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+No manual refresh needed — the component resets itself after showing the result.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## Architecture Overview
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+App Layout
+     ↓
+Navbar  ←  SystemStatus (polls /health every 5s)
+     ↓
+Hero Section
+     ↓
+MetricsDashboard  ←  polls /metrics every 4s
+     ↓
+UploadCard
+   ├── FileDropzone       (drag & drop / click to select)
+   ├── Job Polling        (polls /jobs/:id until terminal state)
+   └── UploadStatus       (success | duplicate | failed | processing)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## API Layer (`lib/`)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+All network calls go through `lib/api.js`. No raw fetch/axios calls in components.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### `lib/axios.js`
+Creates a single Axios instance with `baseURL` from `NEXT_PUBLIC_API_BASE_URL` and a 15s timeout. Any future auth headers or global error interceptors go here — components don't need to change.
+
+### `lib/api.js`
+Exposes clean methods consumed by components:
+
+```js
+uploadFile(file)          // POST /upload  — returns { jobId, filename }
+getJobStatus(jobId)       // GET /jobs/:id — returns { status, errorMessage, ... }
+getMetrics()              // GET /metrics  — returns { jobs: {...}, queue: {...} }
+checkSystemHealth()       // GET /health   — returns { status }
+```
+
+Each method returns normalized data only — no UI side-effects.
+
+---
+
+## Component Details
+
+### `SystemStatus`
+Calls `/health` on mount and every 5 seconds. Renders an animated ping dot in the Navbar:
+- 🟢 Green — system healthy
+- 🟡 Yellow — checking
+- 🔴 Red — unreachable
+
+### `MetricsDashboard`
+Polls `/metrics` every 4 seconds. Renders 4 cards with color-coded counts:
+
+| Card | Color |
+|------|-------|
+| Queue (waiting + active) | Blue |
+| Success | Green |
+| Duplicate | Yellow |
+| Failed | Red |
+
+### `FileDropzone`
+Click-to-select or drag-and-drop. Accepts `.mp3`, `.wav`, `.m4a`. Single file only (matches backend assumption).
+
+### `UploadStatus`
+Renders a color-coded alert for the terminal state. Uses border + background transparency to keep it readable without being loud.
+
+---
+
+## Upload Flow (Step by Step)
+
+1. User drops or selects a file
+2. `uploadFile(file)` called — `POST /upload`
+3. API responds with `{ jobId }` — status switches to `processing`
+4. Frontend polls `GET /jobs/:id` every 2 seconds
+5. On terminal status:
+   - `success` → green — file stored
+   - `duplicate` → yellow — file already exists
+   - `failed` → red — error message shown
+6. Auto-resets to idle after 4 seconds
+
+---
+
+## Environment Variables
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
+```
+
+---
+
+## Setup
+
+```bash
+cd frontend
+npm install
+cp .env.local.example .env.local
+# Set NEXT_PUBLIC_API_BASE_URL
+npm run dev
+```
+
+App runs at `http://localhost:3001` (or next available port if 3000 is taken by API).
+
+---
+
+## Assumptions & Trade-offs
+
+**Polling over WebSockets** — simpler and sufficient for this scale. WebSockets would be the right call for a high-frequency production system.
+
+**No upload history** — job state lives in the backend only. The frontend forgets about a job after it resets. A history panel could be added by persisting `jobId` list in localStorage.
+
+**Single file at a time** — matches the backend's single-job-per-request model. Parallel uploads would require a job list UI.
+
+**No authentication** — open system. Adding auth would mean attaching a token in `lib/axios.js` interceptors — no component changes needed.
