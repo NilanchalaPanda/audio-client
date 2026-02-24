@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+html,
+body {
+  height: 100%;
+  background-color: #0f0f13;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.glow {
+  box-shadow: 0 0 20px rgba(0, 245, 255, 0.2);
+}
