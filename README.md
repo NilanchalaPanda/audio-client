@@ -2,8 +2,7 @@
 
 Next.js frontend for the audio deduplication system. Uploads files, polls job status, and displays live metrics.
 
-![Homepage](image.png)
-
+<video controls src="Audio Deduplication Upload - Google Chrome 2026-02-26 16-35-27.mp4" title="Video Demo"></video>
 
 ## Stack
 
